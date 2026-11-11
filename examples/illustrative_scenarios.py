@@ -16,6 +16,7 @@ K = 1
 ALPHA = 0.5
 BETA = 0.5
 GAMMA = 0.5
+ALERT_TOLERANCE = 0.1
 
 
 def manual_calculation(data: List[float]) -> Dict[str, float]:
@@ -62,6 +63,7 @@ def show_scenario(title: str, observations: List[float]) -> None:
         beta=BETA,
         gamma=GAMMA,
         compare_standard=True,
+        alert_tolerance=ALERT_TOLERANCE,
     )
 
     print("\n" + title)
@@ -77,13 +79,70 @@ def show_scenario(title: str, observations: List[float]) -> None:
         print("  {:10s} {:.6g}".format(name + ":", library_value))
         assert math.isclose(hand[name], library_value, rel_tol=1e-12, abs_tol=1e-12)
 
-    print("\nStandard metrics:", result.standard_metrics)
+    if result.standard_metrics is None:
+        raise AssertionError("standard metrics were requested but not returned")
+
+    data_range = max(observations) - min(observations)
+    threshold = ALERT_TOLERANCE * data_range
+    comparisons = (
+        (
+            "Median / Core Truth (P-GMCSI)",
+            result.standard_metrics["median"],
+            result.metrics["P-GMCSI"],
+        ),
+        (
+            "Mean / P-GMA",
+            result.standard_metrics["mean"],
+            result.metrics["P-GMA"],
+        ),
+        (
+            "Population standard deviation / MBV (dispersion diagnostic)",
+            result.standard_metrics["standard_deviation"],
+            result.metrics["MBV"],
+        ),
+    )
+
+    print("\nStandard metrics:")
+    for name, value in result.standard_metrics.items():
+        print("  {:24s} {:.6g}".format(name + ":", value))
+
+    print(
+        "\nComparison details (range={:.6g}, alert threshold={:.6g}, "
+        "tolerance={:.0%}):".format(
+            data_range, threshold, ALERT_TOLERANCE
+        )
+    )
+    expected_alerts = []
+    for name, standard_value, mumo_value in comparisons:
+        difference = abs(standard_value - mumo_value)
+        status = "ALERT" if difference > threshold else "within threshold"
+        print(
+            "  {}: standard={:.6g}, Mumo={:.6g}, difference={:.6g} "
+            "({:.2%} of range) -> {}".format(
+                name,
+                standard_value,
+                mumo_value,
+                difference,
+                difference / data_range if data_range else 0.0,
+                status,
+            )
+        )
+        if difference > threshold:
+            expected_alerts.append(status)
+
     print("Blind-Spot Alerts:")
     if result.blind_spot_alerts:
         for alert in result.blind_spot_alerts:
             print("  " + alert)
     else:
-        print("  None at the configured 10%-of-range threshold.")
+        print("  None; all displayed differences are within the threshold.")
+
+    assert len(result.blind_spot_alerts) == len(expected_alerts)
+    print(
+        "Explanation: a metric pair can differ and still show no alert when "
+        "its absolute difference does not exceed {:.0%} of the data range."
+        .format(ALERT_TOLERANCE)
+    )
 
 
 if __name__ == "__main__":

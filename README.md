@@ -100,8 +100,10 @@ for alert in analysis.blind_spot_alerts:
 shows both hand calculations and matching Python results for two hypothetical
 five-sample sensor scenarios: one with a high spike and one with a low drop.
 It prints P-MPU, P-MPD, P-GMA, MBV, P-GMCSI, MAEI, P-MBTS, standard metrics,
-and any alerts. The script asserts the hand calculations against the library
-results so the examples are reproducible.
+and a comparison table with both values, their difference, the range-based
+threshold, and whether an alert fired. Thus a “within threshold” result still
+shows the calculated difference and why it did not alert. The script asserts
+the hand calculations against the library results and checks the alert count.
 
 Run it from the project root after installing the project:
 
