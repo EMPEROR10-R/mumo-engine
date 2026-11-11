@@ -94,6 +94,27 @@ for alert in analysis.blind_spot_alerts:
 `blind_spot_alerts`, the chosen parameters, and the primary boundary routing
 (`"sorted"` or `"heap"`).
 
+## Worked scenarios
+
+[`examples/illustrative_scenarios.py`](./examples/illustrative_scenarios.py)
+shows both hand calculations and matching Python results for two hypothetical
+five-sample sensor scenarios: one with a high spike and one with a low drop.
+It prints P-MPU, P-MPD, P-GMA, MBV, P-GMCSI, MAEI, P-MBTS, standard metrics,
+and any alerts. The script asserts the hand calculations against the library
+results so the examples are reproducible.
+
+Run it from the project root after installing the project:
+
+```shell
+python -m pip install -e .
+python examples/illustrative_scenarios.py
+```
+
+These are constructed examples for understanding formula behavior, not
+validated production cases or proof that Mumo metrics outperform standard
+statistics. A grant or research evaluation should add domain-specific,
+appropriately sourced data, documented baselines, and reproducible evaluation.
+
 ## Advanced calculus and matrix extensions
 
 * `risk_velocity(mbv_values, times=None)` calculates first differences per
