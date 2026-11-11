@@ -397,14 +397,40 @@ def analyze_dataset(
                 metrics["MBV"],
             ),
         )
-        alerts = tuple(
-            "Blind-Spot Alert: {} differs from {} by {:.6g} "
-            "(>{:.0%} of data range).".format(
-                standard_name, mumo_name, abs(standard_value - mumo_value), tolerance
-            )
-            for standard_name, mumo_name, standard_value, mumo_value in comparisons
-            if abs(standard_value - mumo_value) > tolerance * scale
-        )
+        alert_messages = []
+        for standard_name, mumo_name, standard_value, mumo_value in comparisons:
+            difference = abs(standard_value - mumo_value)
+            if difference <= tolerance * scale:
+                continue
+            range_fraction = difference / scale
+            if standard_name == "standard deviation":
+                alert_messages.append(
+                    "Blind-Spot Alert: dispersion diagnostic — population "
+                    "standard deviation ({:.6g}) differs from MBV ({:.6g}) "
+                    "by {:.6g} ({:.1%} of data range; threshold {:.0%}). "
+                    "MBV is a boundary-corridor width, not an estimate of "
+                    "standard deviation.".format(
+                        standard_value,
+                        mumo_value,
+                        difference,
+                        range_fraction,
+                        tolerance,
+                    )
+                )
+            else:
+                alert_messages.append(
+                    "Blind-Spot Alert: {} ({:.6g}) differs from {} ({:.6g}) "
+                    "by {:.6g} ({:.1%} of data range; threshold {:.0%}).".format(
+                        standard_name,
+                        standard_value,
+                        mumo_name,
+                        mumo_value,
+                        difference,
+                        range_fraction,
+                        tolerance,
+                    )
+                )
+        alerts = tuple(alert_messages)
 
     return MumoAnalysis(
         metrics=metrics,

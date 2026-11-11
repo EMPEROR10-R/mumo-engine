@@ -353,7 +353,7 @@ class MumoCalculator:
         status = (
             "Boundary route: {}. P-MBTS uses the mean after removing the lowest "
             "and highest k values. Alerts compare median/Core Truth, mean/P-GMA, "
-            "and standard deviation/MBV."
+            "and report standard deviation/MBV as a dispersion diagnostic."
         ).format(results.routing)
         if results.blind_spot_alerts:
             status += "\n" + "\n".join(results.blind_spot_alerts)

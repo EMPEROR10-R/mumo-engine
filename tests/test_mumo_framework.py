@@ -73,11 +73,17 @@ class ParametricFormulaTests(unittest.TestCase):
         self.assertEqual(result.standard_metrics["mean"], 20.0)
         self.assertEqual(result.standard_metrics["median"], 0.0)
         self.assertTrue(
-            any("mean differs from P-GMA" in alert for alert in result.blind_spot_alerts)
+            any(
+                "mean (20) differs from P-GMA" in alert
+                for alert in result.blind_spot_alerts
+            )
         )
         self.assertTrue(
             any(
-                "standard deviation differs from MBV" in alert
+                "dispersion diagnostic" in alert
+                and "population standard deviation (40)" in alert
+                and "MBV (37.5)" in alert
+                and "2.5% of data range" in alert
                 for alert in result.blind_spot_alerts
             )
         )
@@ -95,7 +101,7 @@ class ParametricFormulaTests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                "median differs from Core Truth (P-GMCSI)" in alert
+                "median (" in alert and "differs from Core Truth (P-GMCSI)" in alert
                 for alert in result.blind_spot_alerts
             )
         )

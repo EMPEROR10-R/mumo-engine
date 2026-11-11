@@ -66,7 +66,10 @@ Set `compare_standard=True` in `analyze_dataset` to return the arithmetic
 mean, median, and population standard deviation alongside the Mumo formulas.
 Blind-Spot Alerts compare like aspects: standard median with **Core Truth**
 (P-GMCSI), standard mean with P-GMA, and population standard deviation with
-MBV. An alert is emitted for each difference exceeding
+MBV as a **dispersion diagnostic**, not as a claim that the measures are
+equivalent. MBV is a weighted boundary-corridor width; population standard
+deviation describes distribution spread. Their difference is reported as a
+fraction of the observed data range. An alert is emitted for each difference exceeding
 `alert_tolerance * (max(data) - min(data))`; the default tolerance is 10% of
 the observed range.
 
