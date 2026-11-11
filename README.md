@@ -1,6 +1,6 @@
 # Mumo Framework Engine
 
-**mumo-engine 1.1.0-alpha.1** is a Python library for parametric data
+**mumo-engine 1.1.0-alpha.2** is a Python library for parametric data
 boundaries, consensus metrics, and risk-corridor calculations.
 
 The active API centers on the parametric formulas and their generalized
@@ -36,10 +36,8 @@ For `n` observations, `k` boundary observations, and `alpha` in `[0, 1]`:
 * **P-GMCSI:** weighted mean of the centered contiguous `k`-value core and all
   values outside that core.
 * **MAEI:** `gamma * P-GMA + (1 - gamma) * P-GMCSI`.
-* **MBTS / P-MBTS:** unweighted / alpha-weighted tension values using the edge
-  range and, for P-MBTS, the mean remaining after removing both boundary
-  slices. P-MBTS requires `2 * k < n`.
-* **MCHI:** `gamma * P-MBTS + (1 - gamma) * P-GMCSI`.
+* **P-MBTS:** alpha-weighted tension value using the edge slices and the mean
+  remaining after removing both boundary slices. It requires `2 * k < n`.
 
 The parametric boundary functions accept an explicit `k` and `alpha`. For
 sized inputs up to 2,048 values they use sorted boundary slices; larger inputs
@@ -55,8 +53,8 @@ dataset, such as core slicing.
 `gamma` in a `MumoParameters` value. The default fraction is 5%; `k` is
 bounded so that both the slice and its remainder are nonempty. Alpha and beta
 are derived from the observed range, mean, and optional MBV baseline, then
-clamped to `[0, 1]`. When the returned `k` is used with P-MBTS, MAEI, or MCHI,
-it must satisfy `2 * k < n`.
+clamped to `[0, 1]`. When the returned `k` is used with P-MBTS or MAEI, it
+must satisfy `2 * k < n`.
 
 `analyze_dataset` uses those calibrated values when parameters are omitted.
 Any explicit `k`, `alpha`, `beta`, or `gamma` takes precedence over
@@ -66,8 +64,9 @@ autotuning.
 
 Set `compare_standard=True` in `analyze_dataset` to return the arithmetic
 mean, median, and population standard deviation alongside the Mumo formulas.
-The standard mean is compared with P-MPU, P-MPD, and **Core Truth**
-(P-GMCSI). A Blind-Spot Alert is emitted for each difference exceeding
+Blind-Spot Alerts compare like aspects: standard median with **Core Truth**
+(P-GMCSI), standard mean with P-GMA, and population standard deviation with
+MBV. An alert is emitted for each difference exceeding
 `alert_tolerance * (max(data) - min(data))`; the default tolerance is 10% of
 the observed range.
 

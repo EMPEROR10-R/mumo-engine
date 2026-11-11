@@ -12,7 +12,7 @@ import statistics
 from collections.abc import Sized
 from typing import Dict, Iterable, List, Optional, Sequence, SupportsFloat, Tuple, cast
 
-__version__ = "1.1.0-alpha.1"
+__version__ = "1.1.0-alpha.2"
 
 _HEAP_THRESHOLD = 2048
 
@@ -145,15 +145,6 @@ def _parametric_boundary_means(
     return upper_mean, upper_remainder, lower_mean, lower_remainder
 
 
-def calculate_mbts(data: Iterable[float]) -> float:
-    """Return MBTS using the edge range and the mean of interior values."""
-    values = _ordered_data(data)
-    if len(values) < 3:
-        raise ValueError("MBTS requires at least three data values")
-    rest_mean = _mean(values[1:-1])
-    return ((values[-1] - values[0]) / 2.0 + rest_mean) / 2.0
-
-
 def calculate_gma_k(data: Iterable[float], k: int) -> float:
     """Return the non-parametric generalized average for boundary slices."""
     values = _ordered_data(data)
@@ -261,20 +252,6 @@ def calculate_maei(
     return balance * generalized + (1.0 - balance) * core
 
 
-def calculate_mchi(
-    data: Iterable[float],
-    k: int,
-    alpha: float = 0.5,
-    gamma: float = 0.5,
-) -> float:
-    """Blend parametric MBTS and the core-squeeze index using gamma."""
-    values = _ordered_data(data)
-    balance = _weight(gamma, "gamma")
-    tension = calculate_p_mbts(values, k, alpha)
-    core = calculate_p_gmcsi(values, k, alpha)
-    return balance * tension + (1.0 - balance) * core
-
-
 @dataclass(frozen=True)
 class MumoParameters:
     """Autotuned parameters for a dataset."""
@@ -314,7 +291,7 @@ def autotune_parameters(
     receives neutral alpha/beta settings where the corresponding ratio is
     undefined.
 
-    When the returned ``k`` will also be used for P-MBTS, MAEI, or MCHI, it
+    When the returned ``k`` will also be used for P-MBTS or MAEI, it
     must additionally satisfy ``2 * k < n``; choose a fraction below 0.5
     for the usual fractional-sizing workflow.
     """
@@ -390,11 +367,9 @@ def analyze_dataset(
         "P-MPD": calculate_p_mpd(values, size, weight),
         "P-GMA": calculate_p_gma(values, size, weight, balance),
         "MBV": calculate_mbv(values, size, weight),
-        "MBTS": calculate_mbts(values),
         "P-MBTS": calculate_p_mbts(values, size, weight),
         "P-GMCSI": calculate_p_gmcsi(values, size, weight),
         "MAEI": calculate_maei(values, size, weight, balance, equilibrium),
-        "MCHI": calculate_mchi(values, size, weight, equilibrium),
     }
 
     standard_metrics: Optional[Dict[str, float]] = None
@@ -407,18 +382,28 @@ def analyze_dataset(
             "standard_deviation": statistics.pstdev(values),
         }
         scale = values[-1] - values[0]
-        references = (
-            ("P-MPU", metrics["P-MPU"]),
-            ("P-MPD", metrics["P-MPD"]),
-            ("Core Truth (P-GMCSI)", metrics["P-GMCSI"]),
+        comparisons = (
+            (
+                "median",
+                "Core Truth (P-GMCSI)",
+                standard_metrics["median"],
+                metrics["P-GMCSI"],
+            ),
+            ("mean", "P-GMA", standard_mean, metrics["P-GMA"]),
+            (
+                "standard deviation",
+                "MBV",
+                standard_metrics["standard_deviation"],
+                metrics["MBV"],
+            ),
         )
         alerts = tuple(
-            "Blind-Spot Alert: standard mean differs from {} by {:.6g} "
+            "Blind-Spot Alert: {} differs from {} by {:.6g} "
             "(>{:.0%} of data range).".format(
-                name, abs(standard_mean - reference), tolerance
+                standard_name, mumo_name, abs(standard_value - mumo_value), tolerance
             )
-            for name, reference in references
-            if abs(standard_mean - reference) > tolerance * scale
+            for standard_name, mumo_name, standard_value, mumo_value in comparisons
+            if abs(standard_value - mumo_value) > tolerance * scale
         )
 
     return MumoAnalysis(
@@ -659,7 +644,6 @@ class MumoEngine:
     """Convenient namespace exposing the framework's calculations."""
 
     analyze_dataset = staticmethod(analyze_dataset)
-    calculate_mbts = staticmethod(calculate_mbts)
     calculate_gma_k = staticmethod(calculate_gma_k)
     calculate_p_mpu = staticmethod(calculate_p_mpu)
     calculate_p_mpd = staticmethod(calculate_p_mpd)
@@ -668,7 +652,6 @@ class MumoEngine:
     calculate_p_mbts = staticmethod(calculate_p_mbts)
     calculate_p_gmcsi = staticmethod(calculate_p_gmcsi)
     calculate_maei = staticmethod(calculate_maei)
-    calculate_mchi = staticmethod(calculate_mchi)
     autotune_parameters = staticmethod(autotune_parameters)
     risk_velocity = staticmethod(risk_velocity)
     risk_acceleration = staticmethod(risk_acceleration)
@@ -688,8 +671,6 @@ __all__ = [
     "calculate_gma_k",
     "calculate_maei",
     "calculate_mbv",
-    "calculate_mbts",
-    "calculate_mchi",
     "calculate_p_gma",
     "calculate_p_gmcsi",
     "calculate_p_mbts",

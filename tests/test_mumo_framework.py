@@ -67,16 +67,52 @@ class ParametricFormulaTests(unittest.TestCase):
             beta=0.25,
             gamma=0.75,
             compare_standard=True,
+            alert_tolerance=0.01,
         )
         self.assertEqual((result.k, result.alpha, result.beta, result.gamma), (1, 0.5, 0.25, 0.75))
         self.assertEqual(result.standard_metrics["mean"], 20.0)
         self.assertEqual(result.standard_metrics["median"], 0.0)
-        self.assertIn("P-MPU", result.blind_spot_alerts[0])
+        self.assertTrue(
+            any("mean differs from P-GMA" in alert for alert in result.blind_spot_alerts)
+        )
+        self.assertTrue(
+            any(
+                "standard deviation differs from MBV" in alert
+                for alert in result.blind_spot_alerts
+            )
+        )
         self.assertEqual(result.routing, "sorted")
 
-    def test_legacy_formulas_are_not_executable_public_api(self):
-        for name in ("calculate_mpu", "calculate_mpd", "calculate_ma"):
+    def test_median_is_compared_to_core_truth(self):
+        result = analyze_dataset(
+            [0.0, 0.0, 0.0, 0.0, 10.0, 20.0, 30.0, 40.0, 50.0],
+            k=3,
+            alpha=0.5,
+            beta=0.5,
+            gamma=0.5,
+            compare_standard=True,
+            alert_tolerance=0.01,
+        )
+        self.assertTrue(
+            any(
+                "median differs from Core Truth (P-GMCSI)" in alert
+                for alert in result.blind_spot_alerts
+            )
+        )
+
+    def test_unweighted_mbts_and_mchi_are_not_public_metrics(self):
+        for name in (
+            "calculate_mpu",
+            "calculate_mpd",
+            "calculate_ma",
+            "calculate_mbts",
+            "calculate_mchi",
+        ):
             self.assertFalse(hasattr(MumoEngine, name))
+        result = analyze_dataset([1.0, 2.0, 3.0, 4.0], k=1, alpha=0.5)
+        self.assertNotIn("MBTS", result.metrics)
+        self.assertNotIn("MCHI", result.metrics)
+        self.assertIn("P-MBTS", result.metrics)
 
 
 class ExtensionTests(unittest.TestCase):

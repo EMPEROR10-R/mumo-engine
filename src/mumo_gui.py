@@ -201,8 +201,8 @@ class MumoCalculator:
         metrics = ttk.Frame(results_panel, style="Panel.TFrame")
         metrics.pack(fill="both", expand=True)
         metric_names = [
-            "GMA-k", "MBTS", "P-MPU", "P-MPD", "P-GMA", "MBV", "P-MBTS",
-            "P-GMCSI", "MAEI", "MCHI", "Standard Mean", "Standard Median",
+            "GMA-k", "P-MPU", "P-MPD", "P-GMA", "MBV", "P-MBTS",
+            "P-GMCSI", "MAEI", "Standard Mean", "Standard Median",
             "Standard Deviation",
         ]
         for column in range(3):
@@ -215,7 +215,7 @@ class MumoCalculator:
             value = tk.StringVar(value="—")
             self._metric_values[name] = value
             value_style = (
-                "HighlightValue.TLabel" if name in ("MAEI", "MCHI") else "MetricValue.TLabel"
+                "HighlightValue.TLabel" if name == "MAEI" else "MetricValue.TLabel"
             )
             ttk.Label(card, textvariable=value, style=value_style).pack(anchor="w")
 
@@ -350,9 +350,11 @@ class MumoCalculator:
             self._metric_values[name].set(
                 "—" if result is None else "{:.6g}".format(result)
             )
-        status = "Boundary route: {}. P-MBTS uses the mean after removing the lowest and highest k values.".format(
-            results.routing
-        )
+        status = (
+            "Boundary route: {}. P-MBTS uses the mean after removing the lowest "
+            "and highest k values. Alerts compare median/Core Truth, mean/P-GMA, "
+            "and standard deviation/MBV."
+        ).format(results.routing)
         if results.blind_spot_alerts:
             status += "\n" + "\n".join(results.blind_spot_alerts)
         self.status.set(status)
