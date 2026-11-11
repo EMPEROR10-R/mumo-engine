@@ -116,6 +116,7 @@ def show_scenario(title: str, observations: List[float]) -> None:
     for name, standard_value, mumo_value in comparisons:
         difference = abs(standard_value - mumo_value)
         status = "ALERT" if difference > threshold else "within threshold"
+        range_fraction = difference / data_range if data_range else 0.0
         print(
             "  {}: standard={:.6g}, Mumo={:.6g}, difference={:.6g} "
             "({:.2%} of range) -> {}".format(
@@ -123,10 +124,29 @@ def show_scenario(title: str, observations: List[float]) -> None:
                 standard_value,
                 mumo_value,
                 difference,
-                difference / data_range if data_range else 0.0,
+                range_fraction,
                 status,
             )
         )
+        if status == "ALERT":
+            interpretation = (
+                "The two values differ notably relative to this sample's "
+                "range. This flags a difference to investigate; it does not "
+                "show which metric is more correct."
+            )
+        elif name.startswith("Population standard deviation"):
+            interpretation = (
+                "The numerical gap is small relative to this sample's range, "
+                "but standard deviation and MBV measure spread differently "
+                "and are not interchangeable."
+            )
+        else:
+            interpretation = (
+                "The central-value estimates are numerically close relative "
+                "to this sample's range; that alone does not prove they are "
+                "equivalent or equally useful for another task."
+            )
+        print("    Meaning: " + interpretation)
         if difference > threshold:
             expected_alerts.append(status)
 
@@ -139,9 +159,9 @@ def show_scenario(title: str, observations: List[float]) -> None:
 
     assert len(result.blind_spot_alerts) == len(expected_alerts)
     print(
-        "Explanation: a metric pair can differ and still show no alert when "
-        "its absolute difference does not exceed {:.0%} of the data range."
-        .format(ALERT_TOLERANCE)
+        "Overall: the threshold is a configurable screening rule for these "
+        "observations, not a statistical significance test or validation "
+        "that one metric is better. Interpret results with domain context."
     )
 
 
