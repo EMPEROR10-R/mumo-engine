@@ -6,17 +6,22 @@ Based on the original Mumo Mathematical Framework created by Mumo Framework Auth
 from __future__ import annotations
 
 from dataclasses import dataclass
+import heapq
 import math
-from typing import Iterable, List, Optional, Sequence, Tuple
+import statistics
+from collections.abc import Sized
+from typing import Dict, Iterable, List, Optional, Sequence, SupportsFloat, Tuple, cast
 
-__version__ = "1.0.0"
+__version__ = "1.1.0-alpha.1"
+
+_HEAP_THRESHOLD = 2048
 
 
 def _finite_float(value: object, name: str) -> float:
     if isinstance(value, (bool, str, bytes)):
         raise TypeError("{} must be a real number".format(name))
     try:
-        result = float(value)
+        result = float(cast(SupportsFloat, value))
     except (TypeError, ValueError, OverflowError) as exc:
         raise TypeError("{} must be a real number".format(name)) from exc
     if not math.isfinite(result):
@@ -24,7 +29,7 @@ def _finite_float(value: object, name: str) -> float:
     return result
 
 
-def _ordered_data(data: Iterable[float]) -> List[float]:
+def _validated_data(data: Iterable[float]) -> List[float]:
     if isinstance(data, (str, bytes)):
         raise TypeError("data must be an iterable of numbers")
     try:
@@ -34,10 +39,14 @@ def _ordered_data(data: Iterable[float]) -> List[float]:
     values = [_finite_float(value, "data value") for value in iterator]
     if len(values) < 2:
         raise ValueError("data must contain at least two values")
-    return sorted(values)
+    return values
 
 
-def _positive_integer(value: int, name: str) -> int:
+def _ordered_data(data: Iterable[float]) -> List[float]:
+    return sorted(_validated_data(data))
+
+
+def _positive_integer(value: object, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("{} must be an integer".format(name))
     if value <= 0:
@@ -63,21 +72,77 @@ def _mean(values: Sequence[float]) -> float:
     return math.fsum(values) / len(values)
 
 
-def calculate_mpu(data: Iterable[float]) -> float:
-    """Return MPU: the average of the maximum and the remaining-data mean."""
-    values = _ordered_data(data)
-    return (values[-1] + _mean(values[:-1])) / 2.0
+class _AccurateSum:
+    """Maintain a high-accuracy sum without retaining streamed values."""
+
+    def __init__(self) -> None:
+        self._partials: List[float] = []
+
+    def add(self, value: float) -> None:
+        partials = self._partials
+        index = 0
+        for partial in partials:
+            if abs(value) < abs(partial):
+                value, partial = partial, value
+            high = value + partial
+            low = partial - (high - value)
+            if low:
+                partials[index] = low
+                index += 1
+            value = high
+        partials[index:] = [value]
+
+    def total(self) -> float:
+        return math.fsum(self._partials)
 
 
-def calculate_mpd(data: Iterable[float]) -> float:
-    """Return MPD: the average of the minimum and the remaining-data mean."""
-    values = _ordered_data(data)
-    return (values[0] + _mean(values[1:])) / 2.0
+def _parametric_boundary_means(
+    data: Iterable[float], k: int
+) -> Tuple[float, float, float, float]:
+    """Return top, top remainder, bottom, and bottom remainder means."""
+    if isinstance(data, (str, bytes)):
+        raise TypeError("data must be an iterable of numbers")
+    if isinstance(data, Sized) and len(data) <= _HEAP_THRESHOLD:
+        values = _ordered_data(data)
+        size = _slice_size(k, len(values))
+        return (
+            _mean(values[-size:]),
+            _mean(values[:-size]),
+            _mean(values[:size]),
+            _mean(values[size:]),
+        )
 
+    size = _positive_integer(k, "k")
+    upper: List[float] = []
+    lower: List[float] = []
+    total = _AccurateSum()
+    count = 0
+    try:
+        iterator = iter(data)
+    except TypeError as exc:
+        raise TypeError("data must be an iterable of numbers") from exc
+    for raw_value in iterator:
+        value = _finite_float(raw_value, "data value")
+        count += 1
+        total.add(value)
+        if len(upper) < size:
+            heapq.heappush(upper, value)
+        elif value > upper[0]:
+            heapq.heapreplace(upper, value)
+        if len(lower) < size:
+            heapq.heappush(lower, -value)
+        elif value < -lower[0]:
+            heapq.heapreplace(lower, -value)
 
-def calculate_ma(data: Iterable[float]) -> float:
-    """Return the foundational Mumo average, (MPU + MPD) / 2."""
-    return (calculate_mpu(data) + calculate_mpd(data)) / 2.0
+    if count < 2:
+        raise ValueError("data must contain at least two values")
+    size = _slice_size(size, count)
+    upper_mean = math.fsum(upper) / size
+    lower_mean = -math.fsum(lower) / size
+    total_value = total.total()
+    upper_remainder = (total_value - math.fsum(upper)) / (count - size)
+    lower_remainder = (total_value + math.fsum(lower)) / (count - size)
+    return upper_mean, upper_remainder, lower_mean, lower_remainder
 
 
 def calculate_mbts(data: Iterable[float]) -> float:
@@ -89,39 +154,30 @@ def calculate_mbts(data: Iterable[float]) -> float:
     return ((values[-1] - values[0]) / 2.0 + rest_mean) / 2.0
 
 
-def calculate_mpu_k(data: Iterable[float], k: int) -> float:
-    """Return the unweighted generalized upside metric for the top k values."""
-    values = _ordered_data(data)
-    size = _slice_size(k, len(values))
-    return (_mean(values[-size:]) + _mean(values[:-size])) / 2.0
-
-
-def calculate_mpd_k(data: Iterable[float], k: int) -> float:
-    """Return the unweighted generalized downside metric for the bottom k."""
-    values = _ordered_data(data)
-    size = _slice_size(k, len(values))
-    return (_mean(values[:size]) + _mean(values[size:])) / 2.0
-
-
 def calculate_gma_k(data: Iterable[float], k: int) -> float:
-    """Return GMA for a boundary slice of size k."""
-    return (calculate_mpu_k(data, k) + calculate_mpd_k(data, k)) / 2.0
+    """Return the non-parametric generalized average for boundary slices."""
+    values = _ordered_data(data)
+    size = _slice_size(k, len(values))
+    return (
+        _mean(values[-size:])
+        + _mean(values[:-size])
+        + _mean(values[:size])
+        + _mean(values[size:])
+    ) / 4.0
 
 
 def calculate_p_mpu(data: Iterable[float], k: int, alpha: float = 0.5) -> float:
     """Return parametric upside, weighting the top-k slice by alpha."""
-    values = _ordered_data(data)
-    size = _slice_size(k, len(values))
     weight = _weight(alpha, "alpha")
-    return weight * _mean(values[-size:]) + (1.0 - weight) * _mean(values[:-size])
+    top_mean, remainder_mean, _, _ = _parametric_boundary_means(data, k)
+    return weight * top_mean + (1.0 - weight) * remainder_mean
 
 
 def calculate_p_mpd(data: Iterable[float], k: int, alpha: float = 0.5) -> float:
     """Return parametric downside, weighting the bottom-k slice by alpha."""
-    values = _ordered_data(data)
-    size = _slice_size(k, len(values))
     weight = _weight(alpha, "alpha")
-    return weight * _mean(values[:size]) + (1.0 - weight) * _mean(values[size:])
+    _, _, bottom_mean, remainder_mean = _parametric_boundary_means(data, k)
+    return weight * bottom_mean + (1.0 - weight) * remainder_mean
 
 
 def calculate_p_gma(
@@ -132,14 +188,24 @@ def calculate_p_gma(
 ) -> float:
     """Blend parametric upside and downside using beta."""
     balance = _weight(beta, "beta")
-    upside = calculate_p_mpu(data, k, alpha)
-    downside = calculate_p_mpd(data, k, alpha)
+    weight = _weight(alpha, "alpha")
+    top_mean, top_remainder, bottom_mean, bottom_remainder = (
+        _parametric_boundary_means(data, k)
+    )
+    upside = weight * top_mean + (1.0 - weight) * top_remainder
+    downside = weight * bottom_mean + (1.0 - weight) * bottom_remainder
     return balance * upside + (1.0 - balance) * downside
 
 
 def calculate_mbv(data: Iterable[float], k: int, alpha: float = 0.5) -> float:
     """Return MBV, the unit-preserving width between parametric boundaries."""
-    return calculate_p_mpu(data, k, alpha) - calculate_p_mpd(data, k, alpha)
+    weight = _weight(alpha, "alpha")
+    top_mean, top_remainder, bottom_mean, bottom_remainder = (
+        _parametric_boundary_means(data, k)
+    )
+    return weight * (top_mean - bottom_mean) + (1.0 - weight) * (
+        top_remainder - bottom_remainder
+    )
 
 
 def calculate_p_mbts(
@@ -188,9 +254,10 @@ def calculate_maei(
     gamma: float = 0.5,
 ) -> float:
     """Blend the generalized average and core-squeeze index using gamma."""
+    values = _ordered_data(data)
     balance = _weight(gamma, "gamma")
-    generalized = calculate_p_gma(data, k, alpha, beta)
-    core = calculate_p_gmcsi(data, k, alpha)
+    generalized = calculate_p_gma(values, k, alpha, beta)
+    core = calculate_p_gmcsi(values, k, alpha)
     return balance * generalized + (1.0 - balance) * core
 
 
@@ -201,9 +268,10 @@ def calculate_mchi(
     gamma: float = 0.5,
 ) -> float:
     """Blend parametric MBTS and the core-squeeze index using gamma."""
+    values = _ordered_data(data)
     balance = _weight(gamma, "gamma")
-    tension = calculate_p_mbts(data, k, alpha)
-    core = calculate_p_gmcsi(data, k, alpha)
+    tension = calculate_p_mbts(values, k, alpha)
+    core = calculate_p_gmcsi(values, k, alpha)
     return balance * tension + (1.0 - balance) * core
 
 
@@ -215,6 +283,20 @@ class MumoParameters:
     alpha: float
     beta: float
     gamma: float = 0.5
+
+
+@dataclass(frozen=True)
+class MumoAnalysis:
+    """Formula results, optional standard metrics, and comparison alerts."""
+
+    metrics: Dict[str, float]
+    standard_metrics: Optional[Dict[str, float]]
+    blind_spot_alerts: Tuple[str, ...]
+    k: int
+    alpha: float
+    beta: float
+    gamma: float
+    routing: str
 
 
 def autotune_parameters(
@@ -264,6 +346,91 @@ def autotune_parameters(
     else:
         beta = min(1.0, max(0.0, (values[-1] - average) / baseline))
     return MumoParameters(k=size, alpha=alpha, beta=beta, gamma=balance)
+
+
+def analyze_dataset(
+    data: Iterable[float],
+    k: Optional[int] = None,
+    alpha: Optional[float] = None,
+    beta: Optional[float] = None,
+    gamma: Optional[float] = None,
+    fraction: float = 0.05,
+    compare_standard: bool = False,
+    alert_tolerance: float = 0.1,
+) -> MumoAnalysis:
+    """Calculate Mumo formulas and optionally compare standard metrics.
+
+    Explicit ``k`` and weights override autotuning. Parametric boundary means
+    use heaps for large datasets and unsized iterables; small sized datasets
+    use a sorted-boundary calculation. The alert tolerance is a fraction of
+    the data range.
+    """
+    values = _validated_data(data)
+    if len(values) < 3:
+        raise ValueError("analysis requires at least three data values")
+    if not isinstance(compare_standard, bool):
+        raise TypeError("compare_standard must be a boolean")
+    tolerance = _weight(alert_tolerance, "alert_tolerance")
+
+    tuned = autotune_parameters(values, fraction=fraction)
+    size = (
+        min(tuned.k, (len(values) - 1) // 2)
+        if k is None
+        else _slice_size(k, len(values))
+    )
+    if 2 * size >= len(values):
+        raise ValueError("k must satisfy 2*k < the number of data values")
+    weight = tuned.alpha if alpha is None else _weight(alpha, "alpha")
+    balance = tuned.beta if beta is None else _weight(beta, "beta")
+    equilibrium = tuned.gamma if gamma is None else _weight(gamma, "gamma")
+
+    metrics = {
+        "GMA-k": calculate_gma_k(values, size),
+        "P-MPU": calculate_p_mpu(values, size, weight),
+        "P-MPD": calculate_p_mpd(values, size, weight),
+        "P-GMA": calculate_p_gma(values, size, weight, balance),
+        "MBV": calculate_mbv(values, size, weight),
+        "MBTS": calculate_mbts(values),
+        "P-MBTS": calculate_p_mbts(values, size, weight),
+        "P-GMCSI": calculate_p_gmcsi(values, size, weight),
+        "MAEI": calculate_maei(values, size, weight, balance, equilibrium),
+        "MCHI": calculate_mchi(values, size, weight, equilibrium),
+    }
+
+    standard_metrics: Optional[Dict[str, float]] = None
+    alerts: Tuple[str, ...] = ()
+    if compare_standard:
+        standard_mean = _mean(values)
+        standard_metrics = {
+            "mean": standard_mean,
+            "median": statistics.median(values),
+            "standard_deviation": statistics.pstdev(values),
+        }
+        scale = values[-1] - values[0]
+        references = (
+            ("P-MPU", metrics["P-MPU"]),
+            ("P-MPD", metrics["P-MPD"]),
+            ("Core Truth (P-GMCSI)", metrics["P-GMCSI"]),
+        )
+        alerts = tuple(
+            "Blind-Spot Alert: standard mean differs from {} by {:.6g} "
+            "(>{:.0%} of data range).".format(
+                name, abs(standard_mean - reference), tolerance
+            )
+            for name, reference in references
+            if abs(standard_mean - reference) > tolerance * scale
+        )
+
+    return MumoAnalysis(
+        metrics=metrics,
+        standard_metrics=standard_metrics,
+        blind_spot_alerts=alerts,
+        k=size,
+        alpha=weight,
+        beta=balance,
+        gamma=equilibrium,
+        routing="heap" if len(values) > _HEAP_THRESHOLD else "sorted",
+    )
 
 
 def _time_values(times: Optional[Sequence[float]], count: int) -> List[float]:
@@ -449,31 +616,33 @@ def main() -> int:
             try:
                 data = _read_interactive_dataset()
                 values = _ordered_data(data)
+                if len(values) < 3:
+                    raise ValueError("at least three data values are required")
                 k = _read_interactive_k(len(values))
                 alpha = _read_interactive_weight("alpha")
                 beta = _read_interactive_weight("beta")
                 gamma = _read_interactive_weight("gamma")
-
-                results = [
-                    ("MPU", calculate_mpu(values)),
-                    ("MPD", calculate_mpd(values)),
-                    ("MA", calculate_ma(values)),
-                    ("MBTS", calculate_mbts(values)),
-                    ("MPU-k", calculate_mpu_k(values, k)),
-                    ("MPD-k", calculate_mpd_k(values, k)),
-                    ("GMA-k", calculate_gma_k(values, k)),
-                    ("P-MPU", calculate_p_mpu(values, k, alpha)),
-                    ("P-MPD", calculate_p_mpd(values, k, alpha)),
-                    ("P-GMA", calculate_p_gma(values, k, alpha, beta)),
-                    ("MBV", calculate_mbv(values, k, alpha)),
-                    ("P-MBTS", calculate_p_mbts(values, k, alpha)),
-                    ("P-GMCSI", calculate_p_gmcsi(values, k, alpha)),
-                    ("MAEI", calculate_maei(values, k, alpha, beta, gamma)),
-                    ("MCHI", calculate_mchi(values, k, alpha, gamma)),
-                ]
+                compare_standard = (
+                    input("Compare standard metrics? [y/N]: ").strip().lower()
+                    in ("y", "yes")
+                )
+                analysis = analyze_dataset(
+                    values, k, alpha, beta, gamma, compare_standard=compare_standard
+                )
                 print("\nResults ({} values):".format(len(values)))
-                for name, result in results:
+                for name, result in analysis.metrics.items():
                     print("{:10s} {:.10g}".format(name + ":", result))
+                if analysis.standard_metrics is not None:
+                    print("\nStandard baseline metrics:")
+                    for name, result in analysis.standard_metrics.items():
+                        print("{:22s} {:.10g}".format(name + ":", result))
+                    for alert in analysis.blind_spot_alerts:
+                        print(alert)
+                print(
+                    "Baseline routing: {} (k={}, alpha={:.4g})".format(
+                        analysis.routing, analysis.k, analysis.alpha
+                    )
+                )
                 print("Autotuned:", autotune_parameters(values))
             except (TypeError, ValueError) as exc:
                 print("Could not calculate results: {}".format(exc))
@@ -489,12 +658,8 @@ def main() -> int:
 class MumoEngine:
     """Convenient namespace exposing the framework's calculations."""
 
-    calculate_mpu = staticmethod(calculate_mpu)
-    calculate_mpd = staticmethod(calculate_mpd)
-    calculate_ma = staticmethod(calculate_ma)
+    analyze_dataset = staticmethod(analyze_dataset)
     calculate_mbts = staticmethod(calculate_mbts)
-    calculate_mpu_k = staticmethod(calculate_mpu_k)
-    calculate_mpd_k = staticmethod(calculate_mpd_k)
     calculate_gma_k = staticmethod(calculate_gma_k)
     calculate_p_mpu = staticmethod(calculate_p_mpu)
     calculate_p_mpd = staticmethod(calculate_p_mpd)
@@ -513,21 +678,18 @@ class MumoEngine:
 
 
 __all__ = [
+    "MumoAnalysis",
     "MumoEngine",
     "MumoParameters",
     "__version__",
+    "analyze_dataset",
     "autotune_parameters",
     "boundary_matrix",
     "calculate_gma_k",
-    "calculate_ma",
     "calculate_maei",
     "calculate_mbv",
     "calculate_mbts",
     "calculate_mchi",
-    "calculate_mpd",
-    "calculate_mpd_k",
-    "calculate_mpu",
-    "calculate_mpu_k",
     "calculate_p_gma",
     "calculate_p_gmcsi",
     "calculate_p_mbts",

@@ -1,230 +1,143 @@
-================================================================================
-MUMO MATHEMATICAL FRAMEWORK ENGINE (mumo-engine)
-================================================================================
-Version: 1.0.0
-Author: Mumo Framework Authors
-License: MIT (LICENSE)
+# Mumo Framework Engine
 
---------------------------------------------------------------------------------
-1. EXECUTIVE SUMMARY & LIBRARY PURPOSE
---------------------------------------------------------------------------------
-The Mumo Framework (`mumo-engine`) is an advanced mathematical computing 
-library designed to replace legacy statistical metrics (such as standard 
-deviation, raw arithmetic means, and isolated medians) with dynamic risk-corridor 
-tracking, extreme boundary isolation, consensus core squeezing, autotuned parameter 
-self-calibration, and multi-dimensional tensor risk modeling.
+**mumo-engine 1.1.0-alpha.1** is a Python library for parametric data
+boundaries, consensus metrics, and risk-corridor calculations.
 
-Traditional statistical tools suffer from critical real-world limitations:
-- Standard deviation produces abstract squared variance units rather than 
-  unit-accurate risk limits.
-- Single outliers or sensor typos skew basic mean calculations.
-- Single-point medians flip wildly in large streaming data.
-- Manual tuning parameters introduce human operator bias.
+The active API centers on the parametric formulas and their generalized
+counterparts. The original foundational formulas are retained below as
+historical background only; they are not implemented or called by the package.
 
-The Mumo Engine solves these problems by establishing boundary envelopes, dynamic 
-consensus squeezing, calculus-based derivative velocity tracking, and automated 
-parameter self-calibration across massive datasets and GPU-accelerated matrices.
+## Historical foundational tier
 
+The first Mumo formulation described three unweighted formulas for a sorted
+dataset `x_1 <= ... <= x_n`:
 
---------------------------------------------------------------------------------
-2. PIPELINE ARCHITECTURE DIAGRAM
---------------------------------------------------------------------------------
+* **MPU (Mumo Potential Upside):**
+  `(x_n + mean(x_1, ..., x_(n-1))) / 2`
+* **MPD (Mumo Potential Downside):**
+  `(x_1 + mean(x_2, ..., x_n)) / 2`
+* **MA (Mumo Average):** `(MPU + MPD) / 2`
 
-                        [ THE TOTAL SC-PGMF PIPELINE ]
-                                      |
-         +----------------------------+----------------------------+
-         |                            |                            |
-         v                            v                            v
-[ Boundary Modules ]         [ Core Stabilisers ]        [ Calculus Tensors ]
-* P-MPU (Ceiling Limit)      * P-GMCSI (True Baseline)   * Derivatives (Velocity)
-* P-MPD (Safety Floor)       * P-MBTS (Tension Weight)   * Integrals (Total Strain)
-* MBV (Risk Corridor)        * MAEI (Master Engines)     * Matrices (Multi-Scale)
+These formulas are documented as historical context, not part of the active
+execution tier or public Python API. The current parametric baselines replace
+the single-edge weighting with configurable boundary slices.
 
+## Active formulas
 
---------------------------------------------------------------------------------
-3. COMPLETE FORMULA BREAKDOWN: FUNCTIONS, SYMBOLS & GAPS FILLED
---------------------------------------------------------------------------------
+For `n` observations, `k` boundary observations, and `alpha` in `[0, 1]`:
 
-[SECTION A: FOUNDATIONAL MUMO MODEL (Small Sample Sizes: n, k = 1)]
+* **P-MPU:** `alpha * mean(top k) + (1 - alpha) * mean(all except top k)`
+* **P-MPD:** `alpha * mean(bottom k) + (1 - alpha) * mean(all except bottom k)`
+* **P-GMA:** `beta * P-MPU + (1 - beta) * P-MPD`
+* **GMA-k:** the mean of the unweighted upper and lower generalized
+  boundaries, each of which blends its `k`-slice mean with its remaining-data
+  mean.
+* **MBV:** `P-MPU - P-MPD`, the signed width of the parametric corridor.
+* **P-GMCSI:** weighted mean of the centered contiguous `k`-value core and all
+  values outside that core.
+* **MAEI:** `gamma * P-GMA + (1 - gamma) * P-GMCSI`.
+* **MBTS / P-MBTS:** unweighted / alpha-weighted tension values using the edge
+  range and, for P-MBTS, the mean remaining after removing both boundary
+  slices. P-MBTS requires `2 * k < n`.
+* **MCHI:** `gamma * P-MBTS + (1 - gamma) * P-GMCSI`.
 
-1. Mumo Potential Upside (MPU)
-   * Formula: MPU = ( x_n + (sum(x_i for i=1 to n-1) / (n-1)) ) / 2
-   * Symbol Definitions:
-       - x_n : The single maximum value in the sorted dataset X.
-       - x_i : Individual baseline entries in the sorted dataset.
-       - n   : Total number of data points.
-   * Function: Evaluates maximum peak performance capability relative to baseline.
-   * Gap Filled: Replaces raw maximum values (which are highly vulnerable to 
-     single data entry errors or noise spikes) with a baseline-anchored peak limit.
+The parametric boundary functions accept an explicit `k` and `alpha`. For
+sized inputs up to 2,048 values they use sorted boundary slices; larger inputs
+and unsized iterables use bounded heaps for the primary parametric boundary
+means. The heap-based `calculate_p_mpu`, `calculate_p_mpd`,
+`calculate_p_gma`, and `calculate_mbv` functions consume an iterable once.
+The full `analyze_dataset` result also includes formulas that require the full
+dataset, such as core slicing.
 
-2. Mumo Potential Downside (MPD)
-   * Formula: MPD = ( x_1 + (sum(x_i for i=2 to n) / (n-1)) ) / 2
-   * Symbol Definitions:
-       - x_1 : The single minimum value in the sorted dataset X.
-       - x_i : Individual baseline entries in the upper dataset.
-       - n   : Total number of data points.
-   * Function: Evaluates system risk floor safety relative to the remaining baseline.
-   * Gap Filled: Eliminates raw minimum metrics by evaluating worst-case failure 
-     risk in proportion to baseline health.
+## Self-calibration
 
-3. Mumo Average (MA)
-   * Formula: MA = ( MPU + MPD ) / 2
-   * Function: Establishes the central equilibrium point between MPU and MPD.
-   * Gap Filled: Provides an unwarped balance point for small sample counts.
+`autotune_parameters(data, fraction=...)` returns `k`, `alpha`, `beta`, and
+`gamma` in a `MumoParameters` value. The default fraction is 5%; `k` is
+bounded so that both the slice and its remainder are nonempty. Alpha and beta
+are derived from the observed range, mean, and optional MBV baseline, then
+clamped to `[0, 1]`. When the returned `k` is used with P-MBTS, MAEI, or MCHI,
+it must satisfy `2 * k < n`.
 
+`analyze_dataset` uses those calibrated values when parameters are omitted.
+Any explicit `k`, `alpha`, `beta`, or `gamma` takes precedence over
+autotuning.
 
-[SECTION B: GENERALIZED & PARAMETRIC BOUNDARY MODULES (Big Data & Slice k)]
+## Standard comparison and Blind-Spot Alerts
 
-4. Parametric Mumo Potential Upside (P-MPU)
-   * Formula: P-MPU = alpha * (sum(top k) / k) + (1 - alpha) * (sum(remaining) / (n - k))
-   * Symbol Definitions:
-       - k     : Boundary slice size (number of top/bottom boundary elements).
-       - alpha : Weighting slider controlling boundary sensitivity (0 <= alpha <= 1).
-       - n     : Total size of the data array.
-   * Function: Calculates continuous upper performance capacity across massive data streams.
-   * Gap Filled: Prevents single data typos or corrupted streaming telemetry from 
-     warping performance capacity estimates.
+Set `compare_standard=True` in `analyze_dataset` to return the arithmetic
+mean, median, and population standard deviation alongside the Mumo formulas.
+The standard mean is compared with P-MPU, P-MPD, and **Core Truth**
+(P-GMCSI). A Blind-Spot Alert is emitted for each difference exceeding
+`alert_tolerance * (max(data) - min(data))`; the default tolerance is 10% of
+the observed range.
 
-5. Parametric Mumo Potential Downside (P-MPD)
-   * Formula: P-MPD = alpha * (sum(bottom k) / k) + (1 - alpha) * (sum(remaining) / (n - k))
-   * Function: Establishes a flexible operational safety floor across large database streams.
-   * Gap Filled: Stops transient system glitches from triggering false automated 
-     emergency shutdown routines.
+```python
+from mumo_framework import analyze_dataset
 
-6. Parametric Generalized Mumo Average (P-GMA)
-   * Formula: P-GMA = beta * (P-MPU) + (1 - beta) * (P-MPD)
-   * Symbol Definitions:
-       - beta : Risk-reward balance parameter slider (0 <= beta <= 1).
-   * Function: Blends peak upside boundaries and risk floors according to operational goals.
-   * Gap Filled: Enables real-time tuning of automated trading bots or server network 
-     throttling based on target risk tolerance.
+data = [12.0, 15.2, 11.8, 45.0, 14.1, 13.9, 10.5]
+analysis = analyze_dataset(
+    data,
+    k=2,                 # explicit overrides are preserved
+    alpha=0.7,
+    compare_standard=True,
+)
 
-7. Mumo Bounds of Variance (MBV)
-   * Formula: MBV = P-MPU - P-MPD
-   * Function: Measures the physical width of the operational risk corridor.
-   * Gap Filled: Replaces statistical standard deviation (which yields abstract 
-     squared units) with a unit-accurate physical range measurement matching the input data.
+print(analysis.metrics["P-MPU"])
+print(analysis.standard_metrics)
+for alert in analysis.blind_spot_alerts:
+    print(alert)
+```
 
+`MumoAnalysis` contains `metrics`, optional `standard_metrics`,
+`blind_spot_alerts`, the chosen parameters, and the primary boundary routing
+(`"sorted"` or `"heap"`).
 
-[SECTION C: CORE STABILISERS]
+## Advanced calculus and matrix extensions
 
-8. Parametric Generalized Mumo Core-Squeeze Index (P-GMCSI)
-   * Formula: P-GMCSI = alpha * (sum(Core Cluster C_k) / k) + (1 - alpha) * (sum(Remaining Mass) / (n - k))
-   * Symbol Definitions:
-       - C_k : The contiguous central k-value slice of the sorted dataset.
-       - R_{n-k} : Every value outside C_k; this set contains n-k values.
-       - Slice position: start at index floor((n-k)/2) in the sorted dataset.
-   * Function: Squeezes middle elements to produce an uncorrupted central consensus value.
-   * Gap Filled: Eliminates median flipping in large datasets while preserving full 
-     consensus awareness of outer wing mass.
+* `risk_velocity(mbv_values, times=None)` calculates first differences per
+  time interval.
+* `risk_acceleration(mbv_values, times=None)` calculates differences between
+  adjacent velocity intervals.
+* `cumulative_exposure(floor_values, observations, times=None)` integrates
+  `floor - observation` using the trapezoidal rule.
+* `boundary_matrix(data, k, alpha=...)` calculates P-MPU, P-MPD, and MBV for
+  each row.
+* `matrix_multiply(omega, data)` calculates `omega * data` for compatible
+  rectangular matrices.
 
-   For dynamic fractional sizing, set k = max(1, floor(p*n)) (capped at n-1)
-   using autotune_parameters(data, fraction=p).k. This is the framework's
-   fractional-size mode (equivalent to delta=1); omitting it leaves k under
-   caller control (equivalent to delta=0). The calculation functions
-   themselves remain deterministic and accept k as an ordinary parameter.
-   When using k for P-MBTS, MAEI, or MCHI as well, choose p < 0.5 so
-   2*k < n and P-MBTS has at least one value remaining between its two
-   boundary slices.
+## Installation and use
 
-9. Mumo Adaptive Equilibrium Index (MAEI)
-   * Formula: MAEI = gamma * (P-GMA) + (1 - gamma) * (P-GMCSI)
-   * Symbol Definitions:
-       - gamma : Balance switch between outer threat boundary tracking and inner core stability.
-   * Function: Master Engine unifying boundary limits and core consensus into one metric.
-   * Gap Filled: Provides hardware engines with dynamic mathematical survival instincts.
+```shell
+python -m pip install mumo-engine
+```
 
+Or install the checkout in editable mode:
 
-[SECTION D: AUTOTUNE ZERO-BIAS ENGINE (SC-PGMF)]
+```shell
+python -m pip install -e .
+```
 
-10. Autotune Self-Calibration (SC-MPU, SC-MPD, SC-GMA, SC-GMCSI, SC-MAEI)
-    * Formulas:
-        k_auto     = floor(p * n)
-        alpha_auto = (x_n - x_1) / mean(x)
-        beta_auto  = (x_n - mean(x)) / MBV_baseline
-    * Symbol Definitions:
-        - p : Target fractional boundary depth (e.g., 0.05 for 5%).
-        - delta, omega : Mode switches (0 = manual, 1 = fully automated autotune).
-    * Function: Auto-derives k, alpha, and beta parameters straight from data volume and variance.
-    * Gap Filled: Erases human parameter bias and eliminates manual recalibration during sudden market spikes.
+```python
+from mumo_framework import MumoEngine
 
+data = [12.0, 15.2, 11.8, 45.0, 14.1, 13.9, 10.5]
+p_mpu = MumoEngine.calculate_p_mpu(data, k=2, alpha=0.7)
+p_mpd = MumoEngine.calculate_p_mpd(data, k=2, alpha=0.7)
+mbv = MumoEngine.calculate_mbv(data, k=2, alpha=0.7)
+print(p_mpu, p_mpd, mbv)
+```
 
-[SECTION E: CALCULUS TENSORS & MULTI-DIMENSIONAL EXTENSIONS]
+For an unsized stream, pass a known `k` to a primary boundary function:
 
-11. Risk Derivatives (Velocity & Acceleration)
-    * Formulas:
-        Velocity     = d(MBV)/dt = d(P-MPU)/dt - d(P-MPD)/dt
-        Acceleration = d^2(MBV)/dt^2
-    * Function: Tracks the rate of expansion and acceleration of system risk corridors over time vectors.
-    * Gap Filled: Predicts market crashes or hardware failures before safety floors break by detecting positive acceleration.
+```python
+p_mpu = MumoEngine.calculate_p_mpu((read_value() for _ in range(100_000)), k=500)
+```
 
-12. Cumulative Risk Mass Integration (Total Exposure Volume)
-    * Formula: Total Exposure Volume = integral_a^b ( P-MPD(t) - f(t) ) dt
-    * Symbol Definitions:
-        - f(t) : Continuous metric spot curve over time t from a to b.
-    * Function: Integrates continuous structural strain volume over time windows.
-    * Gap Filled: Quantifies cumulative physical fatigue or financial drawdown duration rather than static point snapshots.
+Run the interactive calculator with `python -m mumo_framework`; it accepts
+comma- or whitespace-separated values and can optionally compare standard
+metrics. Run the desktop interface with `mumo-framework-gui` or
+`python -m mumo_gui`.
 
-13. Multi-Dimensional Risk Matrix (Tensor Surface Transformation)
-    * Formula: Y = Omega * X
-    * Symbol Definitions:
-        - X     : High-dimensional data matrix of multi-asset streams.
-        - Omega : Automated parameter state matrix.
-    * Function: Executes multi-asset risk surface calculations simultaneously.
-    * Gap Filled: Enables GPU hardware to compute thousands of asset risk metrics in a single clock cycle.
+## License
 
-
---------------------------------------------------------------------------------
-4. INSTALLATION & QUICKSTART
---------------------------------------------------------------------------------
-Install via PyPI:
-    pip install mumo-engine
-
-Python Example:
-    from mumo_framework import MumoEngine
-
-    data = [12.0, 15.2, 11.8, 45.0, 14.1, 13.9, 10.5]
-
-    # Calculate Ceiling, Safety Floor, and Risk Corridor Width
-    p_mpu = MumoEngine.calculate_p_mpu(data, k=2, alpha=0.7)
-    p_mpd = MumoEngine.calculate_p_mpd(data, k=2, alpha=0.7)
-    mbv   = MumoEngine.calculate_mbv(data, k=2, alpha=0.7)
-
-    print(f"Performance Ceiling (P-MPU): {p_mpu:.2f}")
-    print(f"Safety Floor (P-MPD):        {p_mpd:.2f}")
-    print(f"Risk Corridor Width (MBV):   {mbv:.2f}")
-
-Fractional core/boundary sizing:
-    params = MumoEngine.autotune_parameters(data, fraction=0.10)
-    p_gmcsi = MumoEngine.calculate_p_gmcsi(data, k=params.k, alpha=0.7)
-
-For combined P-MBTS, MAEI, or MCHI calculations, use a fraction below 0.5
-and a dataset of at least three values so the returned k satisfies 2*k < n.
-
-Interactive calculator:
-    python -m mumo_framework
-
-The calculator accepts numbers separated by commas or spaces over as many
-input lines as needed. Submit a blank line to finish the dataset, then enter
-k, alpha, beta, and gamma. Its dataset size is limited by available memory.
-P-MBTS uses the mean of the values remaining after removing the lowest k and
-highest k entries as mu_rest_core; therefore, it requires 2*k < n.
-
-Interactive desktop calculator:
-    mumo-framework-gui
-
-Or, when running from the source checkout:
-    python -m mumo_gui
-
-The desktop calculator lets you edit or paste a dataset and interactively adjust
-k, alpha, beta, and gamma. Results update as the data or parameters change.
-It uses Python's built-in Tkinter interface and adds no third-party dependencies.
-
-
---------------------------------------------------------------------------------
-5. LICENSE
---------------------------------------------------------------------------------
-This project is licensed under the MIT License. See the accompanying LICENSE
-file for full terms.
-
-Based on the original Mumo Mathematical Framework created by Mumo Framework Authors (Root Project).
+MIT. See [LICENSE](./LICENSE).

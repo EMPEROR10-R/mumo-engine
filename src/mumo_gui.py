@@ -7,22 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, List
 
-from mumo_framework import (
-    calculate_ma,
-    calculate_maei,
-    calculate_mbts,
-    calculate_mbv,
-    calculate_mchi,
-    calculate_mpd,
-    calculate_mpd_k,
-    calculate_mpu,
-    calculate_mpu_k,
-    calculate_p_gma,
-    calculate_p_gmcsi,
-    calculate_p_mbts,
-    calculate_p_mpd,
-    calculate_p_mpu,
-)
+from mumo_framework import MumoAnalysis, analyze_dataset
 
 
 _SAMPLE_DATA = "10, 12.5, 14, 15.5, 18, 21, 25, 28.5, 32, 36"
@@ -49,25 +34,17 @@ def _parse_dataset(text: str) -> List[float]:
 
 
 def _calculate_results(
-    data: List[float], k: int, alpha: float, beta: float, gamma: float
-) -> Dict[str, float]:
+    data: List[float],
+    k: int,
+    alpha: float,
+    beta: float,
+    gamma: float,
+    compare_standard: bool = False,
+) -> MumoAnalysis:
     """Calculate the displayed metrics for the current inputs."""
-    return {
-        "MPU": calculate_mpu(data),
-        "MPD": calculate_mpd(data),
-        "MA": calculate_ma(data),
-        "MBTS": calculate_mbts(data),
-        "MPU-k": calculate_mpu_k(data, k),
-        "MPD-k": calculate_mpd_k(data, k),
-        "P-MPU": calculate_p_mpu(data, k, alpha),
-        "P-MPD": calculate_p_mpd(data, k, alpha),
-        "P-GMA": calculate_p_gma(data, k, alpha, beta),
-        "MBV": calculate_mbv(data, k, alpha),
-        "P-MBTS": calculate_p_mbts(data, k, alpha),
-        "P-GMCSI": calculate_p_gmcsi(data, k, alpha),
-        "MAEI": calculate_maei(data, k, alpha, beta, gamma),
-        "MCHI": calculate_mchi(data, k, alpha, gamma),
-    }
+    return analyze_dataset(
+        data, k, alpha, beta, gamma, compare_standard=compare_standard
+    )
 
 
 class MumoCalculator:
@@ -85,6 +62,7 @@ class MumoCalculator:
         self.alpha = tk.DoubleVar(value=0.6)
         self.beta = tk.DoubleVar(value=0.5)
         self.gamma = tk.DoubleVar(value=0.5)
+        self.compare_standard = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Edit the data or adjust a parameter to recalculate.")
         self.count = tk.StringVar(value="0 values")
         self._metric_values: Dict[str, tk.StringVar] = {}
@@ -208,6 +186,12 @@ class MumoCalculator:
         self._add_parameter(parameters, "Alpha", self.alpha, 0, 1, "{:.2f}")
         self._add_parameter(parameters, "Beta", self.beta, 0, 1, "{:.2f}")
         self._add_parameter(parameters, "Gamma", self.gamma, 0, 1, "{:.2f}")
+        ttk.Checkbutton(
+            parameters,
+            text="Compare standard metrics",
+            variable=self.compare_standard,
+            command=self._on_comparison_change,
+        ).pack(anchor="w", pady=(8, 0))
 
         results_panel = ttk.Frame(outer, style="Panel.TFrame", padding=16)
         results_panel.pack(fill="both", expand=True, pady=(16, 0))
@@ -217,8 +201,9 @@ class MumoCalculator:
         metrics = ttk.Frame(results_panel, style="Panel.TFrame")
         metrics.pack(fill="both", expand=True)
         metric_names = [
-            "MPU", "MPD", "MA", "MBTS", "MPU-k", "MPD-k", "P-MPU",
-            "P-MPD", "P-GMA", "MBV", "P-MBTS", "P-GMCSI", "MAEI", "MCHI",
+            "GMA-k", "MBTS", "P-MPU", "P-MPD", "P-GMA", "MBV", "P-MBTS",
+            "P-GMCSI", "MAEI", "MCHI", "Standard Mean", "Standard Median",
+            "Standard Deviation",
         ]
         for column in range(3):
             metrics.columnconfigure(column, weight=1)
@@ -304,6 +289,9 @@ class MumoCalculator:
     def _on_parameter_change(self, _value: str) -> None:
         self._recalculate()
 
+    def _on_comparison_change(self) -> None:
+        self._recalculate()
+
     def _set_sample(self) -> None:
         self.dataset.delete("1.0", "end")
         self.dataset.insert("1.0", _SAMPLE_DATA)
@@ -335,7 +323,12 @@ class MumoCalculator:
 
         try:
             results = _calculate_results(
-                data, self.k.get(), self.alpha.get(), self.beta.get(), self.gamma.get()
+                data,
+                self.k.get(),
+                self.alpha.get(),
+                self.beta.get(),
+                self.gamma.get(),
+                self.compare_standard.get(),
             )
         except (TypeError, ValueError) as exc:
             self.status.set("Could not calculate indices: {}".format(exc))
@@ -344,13 +337,28 @@ class MumoCalculator:
                 value.set("—")
             return
 
-        for name, result in results.items():
-            self._metric_values[name].set("{:.6g}".format(result))
-        self.status.set(
-            "Sorted values are used for boundary calculations. "
-            "P-MBTS uses the mean after removing the lowest k and highest k values."
+        for name in self._metric_values:
+            result = results.metrics.get(name)
+            if results.standard_metrics is not None:
+                standard_name = {
+                    "Standard Mean": "mean",
+                    "Standard Median": "median",
+                    "Standard Deviation": "standard_deviation",
+                }.get(name)
+                if standard_name is not None:
+                    result = results.standard_metrics[standard_name]
+            self._metric_values[name].set(
+                "—" if result is None else "{:.6g}".format(result)
+            )
+        status = "Boundary route: {}. P-MBTS uses the mean after removing the lowest and highest k values.".format(
+            results.routing
         )
-        self.status_label.configure(foreground="#65748b")
+        if results.blind_spot_alerts:
+            status += "\n" + "\n".join(results.blind_spot_alerts)
+        self.status.set(status)
+        self.status_label.configure(
+            foreground="#b42318" if results.blind_spot_alerts else "#65748b"
+        )
 
 
 def main() -> int:
